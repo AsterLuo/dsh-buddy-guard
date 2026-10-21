@@ -9,6 +9,15 @@ buddy: 请求被拦截，请重新发送 Illegal API invocation from an unapprov
 
 [中文说明](README.zh-CN.md)
 
+```bash
+dsh plugin add github:AsterLuo/dsh-buddy-guard --profile <your-profile>
+
+# pin a version (recommended):
+dsh plugin add github:AsterLuo/dsh-buddy-guard#v0.1.0 --profile <your-profile>
+```
+
+> **Restart DSH** afterwards — it is required.
+
 ## The problem
 
 Pick any model on the `buddy` channel (`hy4-preview`, `deepseek-v4.1-flash`, `hy3`, …) and every turn fails

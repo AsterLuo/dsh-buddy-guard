@@ -8,6 +8,15 @@ buddy: 请求被拦截，请重新发送 Illegal API invocation from an unapprov
 
 [English](README.md)
 
+```bash
+dsh plugin add github:AsterLuo/dsh-buddy-guard --profile <你的 profile>
+
+# 固定版本（推荐，防止上游改动影响你）：
+dsh plugin add github:AsterLuo/dsh-buddy-guard#v0.1.0 --profile <你的 profile>
+```
+
+> 装完**必须重启 DSH**。
+
 ## 问题是什么
 
 在 `buddy` 渠道选任意模型（`hy4-preview`、`deepseek-v4.1-flash`、`hy3` …），每一轮都失败，
