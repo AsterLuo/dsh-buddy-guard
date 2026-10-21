@@ -1,0 +1,11 @@
+# dsh-buddy-guard — buddy 渠道 system 前缀补丁
+#
+# 用 `- insert:` 新增 loader 行，避免顶层 id-target 覆盖在单独装载时报
+# `patch: entry "buddy-guard" not found`。
+- insert:
+    - id: buddy-guard
+      name: 'dsh-buddy-guard'
+      config:
+        enabled: true
+        providers:
+          - buddy
