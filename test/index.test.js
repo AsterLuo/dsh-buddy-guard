@@ -114,3 +114,78 @@ test('异常时回退到原始 assembly（不阻断）', async () => {
   const out = await assemble(handler, broken, 'buddy')
   assert.equal(out, broken)
 })
+
+test('清除上游指纹 A（AND 匹配的一半）', async () => {
+  const handler = mount()
+  const a = {
+    sections: [
+      { name: 'identity', text: 'Hello' },
+      { name: 'paths', text: 'Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root;' },
+    ],
+    variables: { provider: 'buddy' },
+  }
+  const out = await assemble(handler, a, 'buddy')
+  assert.ok(
+    !out.sections[1].text.includes('Tokens prefixed with @ are paths the user explicitly referenced'),
+    'A 必须被改写（否则上游 AND 匹配成立）',
+  )
+  assert.ok(
+    out.sections[1].text.includes('Relative paths resolve from the workspace root'),
+    'B 应保留原文（它描述路径语义，对模型最有用）',
+  )
+  assert.equal(out.sections[0].text, ' Hello', '首个非空 section 仍然加前导空格')
+})
+
+test('指纹清理覆盖所有 section，不只首个', async () => {
+  const handler = mount()
+  const a = {
+    sections: [
+      { name: 'head', text: 'head' },
+      { name: 'tail', text: 'tail mentions Tokens prefixed with @ are paths the user explicitly referenced here' },
+    ],
+    variables: { provider: 'buddy' },
+  }
+  const out = await assemble(handler, a, 'buddy')
+  assert.ok(!out.sections[1].text.includes('Tokens prefixed with @ are paths the user explicitly referenced'))
+  assert.equal(out.sections[0].text, ' head')
+})
+
+test('非目标渠道：指纹原样保留', async () => {
+  const handler = mount()
+  const raw = 'Tokens prefixed with @ are paths the user explicitly referenced'
+  const a = { sections: [{ name: 'x', text: raw }], variables: { provider: 'workbuddy' } }
+  const out = await assemble(handler, a, 'workbuddy')
+  assert.equal(out.sections[0].text, raw)
+})
+
+test('注册选项：prepend 必须在（否则会被不调 next 的监听器短路）', () => {
+  let opts = null
+  const ctx = {
+    logger: { info() {}, warn() {}, debug() {} },
+    on(event, _fn, o) { if (event === 'system-prompt/assemble') opts = o },
+  }
+  apply(ctx, { enabled: true, providers: ['buddy'] })
+  assert.deepEqual(opts, { global: true, prepend: true })
+})
+
+test('幂等：二次经过不再产生任何变化', async () => {
+  const handler = mount()
+  const once = await assemble(handler, asm('buddy'), 'buddy')
+  const twice = await assemble(handler, once, 'buddy')
+  assert.deepEqual(twice.sections, once.sections)
+})
+
+test('scrub 与 prefix 组合：渲染后以空格开头且不含指纹', async () => {
+  const handler = mount()
+  const a = {
+    sections: [
+      { name: 'identity', text: 'You are an AI agent powered by DeepSeek Harness.' },
+      { name: 'paths', text: 'See Tokens prefixed with @ are paths the user explicitly referenced for details.' },
+    ],
+    variables: { provider: 'buddy' },
+  }
+  const out = await assemble(handler, a, 'buddy')
+  const rendered = out.sections.map((s) => s.text).filter((t) => t.length > 0).join('\n\n')
+  assert.ok(rendered.startsWith(' '), '整段 system 必须以空格开头')
+  assert.ok(!rendered.includes('Tokens prefixed with @ are paths the user explicitly referenced'))
+})

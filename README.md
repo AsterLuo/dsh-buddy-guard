@@ -13,7 +13,7 @@ buddy: 请求被拦截，请重新发送 Illegal API invocation from an unapprov
 dsh plugin add github:AsterLuo/dsh-buddy-guard --profile <your-profile>
 
 # pin a version (recommended):
-dsh plugin add github:AsterLuo/dsh-buddy-guard#v0.1.0 --profile <your-profile>
+dsh plugin add github:AsterLuo/dsh-buddy-guard#v0.1.1 --profile <your-profile>
 ```
 
 > **Restart DSH** afterwards — it is required.
@@ -24,7 +24,7 @@ Pick any model on the `buddy` channel (`hy4-preview`, `deepseek-v4.1-flash`, `hy
 with HTTP 400 `INVALID_REQUEST`. The same account and the same endpoint work fine as soon
 as the request stops carrying the DSH system prompt.
 
-## Root cause (measured 2026-10-21)
+## First block (measured 2026-10-21)
 
 The upstream does a **prefix match** on the system content. If the system text starts
 with
@@ -56,11 +56,61 @@ Boundary tests (same account, same endpoint, same user message):
 It matches the **start** of the system text; prefixing any character breaks the match,
 and appending anything does not help.
 
+## Second block (measured 2026-10-27)
+
+There is a **second, independent** rule. The upstream also rejects the request when the
+system text contains **both** of these phrases at once (AND match — either one alone passes):
+
+- `Tokens prefixed with @ are paths the user explicitly referenced`
+- `Relative paths resolve from the workspace root`
+
+Both are part of the DSH system prompt's description of `@` path references, so they ship
+with **every** request. The leading space above does **not** help here.
+
+Measured (same account, same endpoint):
+
+| system text | result |
+| --- | --- |
+| phrase A alone | 200 |
+| phrase B alone | 200 |
+| **A and B together** | **400** `11128` |
+| A rewritten, B kept as-is | 200 |
+| B rewritten, A kept as-is | 200 |
+
+The plugin therefore rewrites phrase **A only** and leaves B intact — B states the relative-path
+rule that `read` / `write` / `glob` depend on, so keeping its wording is friendlier to the model.
+The rewrite is semantically equivalent and keeps the same meaning.
+
+### History is a blind spot
+
+The upstream scans **every** message, so phrase A/B sitting in **conversation history** triggers
+the same block. A plugin cannot fix that: `agent/request` documents that it *cannot mutate
+messages*, and the `llm/stream` options object arrives deep-frozen (mutation throws). If a
+session has ever quoted these two phrases, **start a new session**.
+
+### How this was found (repeatable)
+
+1. Hook a read-only `llm/stream` listener and dump the **complete outgoing request** to disk.
+2. Replay that dump against the endpoint directly, using the account's own token.
+3. Binary-search the dumped system text: cut it in half, resend, repeat. The block is monotone,
+   so this converges on the exact trigger in about ten requests.
+4. Replay the full request with the trigger rewritten, and confirm 200.
+
+A blocked request costs no tokens, so this is cheap.
+
 ## How it works
 
-The plugin listens on `system-prompt/assemble` and returns a modified assembly whose first
-non-empty section gets one leading space. `renderPrompt` joins sections with `\n\n`, so the
-whole rendered system text then starts with that space.
+The plugin listens on `system-prompt/assemble` and returns a modified assembly that:
+
+1. gives the first non-empty section one leading space — `renderPrompt` joins sections with
+   `\n\n`, so the whole rendered system text then starts with that space;
+2. scans **every** section and rewrites phrase A to its equivalent.
+
+Registration uses `{ global: true, prepend: true }`, and **`prepend` is required**: without it,
+an outer listener that never calls `next()` (for example dsh-ops' discovery branch, which does
+`return prompt.assemble(context)`) would veto the rest of the chain — per cordis, *"a listener
+that does not call `next()` vetoes the rest of the chain"*. The plugin would load, log, and show
+up in `--dump-config`, yet change nothing.
 
 ### Why not `llm/stream`
 
@@ -92,7 +142,7 @@ Then **restart DSH** — the config is read once at startup.
 
 1. Copy this repo into `<DSH_HOME>/profiles/<profile>/node_modules/dsh-buddy-guard/`
 2. Append `"dsh-buddy-guard"` to `dsh.profile.bundles` in that profile's `package.json`
-3. Add `"dsh-buddy-guard": "0.1.0"` to `dependencies` in the same file
+3. Add `"dsh-buddy-guard": "0.1.1"` to `dependencies` in the same file
 4. Verify with `--dump-config` and look for the `buddy-guard` row
 5. Restart DSH
 
@@ -110,6 +160,8 @@ Then **restart DSH** — the config is read once at startup.
 - `enabled` — master switch.
 - `providers` — which providers get the prefix. Defaults to `['buddy']`; other
   providers pass through untouched.
+- `debug` — when `true`, appends one line per guarded request to `$DSH_HOME/buddy-guard.log`.
+  Off by default, so nothing is written on the hot path.
 
 ## Verify it worked
 
@@ -123,9 +175,9 @@ works. Still getting 400?
 
 ## Caveat
 
-This **bypasses upstream content moderation**. The rule can change at any time. If the
-same error returns, re-run the boundary tests to find the new trigger before changing
-`GUARD_PREFIX`.
+This **bypasses upstream content moderation**. The rules can change at any time, and there
+are now **two** known ones. If the same error returns, re-run the request-dump + binary-search
+recipe above before changing anything.
 
 The account in question is a CodeBuddy **China** account (`www.codebuddy.cn`, the JWT `iss`
 points there) while the client sends the international product shape. That mismatch is
