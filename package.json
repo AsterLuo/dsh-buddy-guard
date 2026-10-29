@@ -1,8 +1,8 @@
 {
   "name": "dsh-buddy-guard",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
-  "description": "Fix CodeBuddy (Tencent) channel returning 400 'Illegal API invocation from an unapproved channel' in DeepSeek Harness: prefix a space to the system prompt and scrub the two-phrase upstream fingerprint that DSH always ships.",
+  "description": "Fix CodeBuddy (Tencent) channel returning 400 'Illegal API invocation from an unapproved channel' in DeepSeek Harness: rewrite the system-prompt identity sentence (the upstream check now ignores leading whitespace) and scrub the two-phrase upstream fingerprint that DSH always ships.",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
