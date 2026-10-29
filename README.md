@@ -34,7 +34,7 @@ There are **three** independent upstream rules, all answering `400 / code 11128`
 | --- | --- | --- |
 | 1 | 2026-10-21, tightened 2026-10-29 | system text starts with the identity sentence |
 | 2 | 2026-10-27 | system text contains phrase A **and** phrase B |
-| 3 | (see below) | the identity check ignores **leading whitespace** |
+| 3 | 2026-10-29 | system text contains the fixed Web GUI context paragraph |
 
 ## Block 1 — the identity sentence (measured 2026-10-21, tightened 2026-10-29)
 
@@ -122,9 +122,24 @@ rule that `read` / `write` / `glob` depend on, so keeping its wording is friendl
 > **This rule still exists as of 2026-10-29.** Control experiment: fix the identity sentence but
 > restore phrase A to its original wording → still `400`. Do not delete the A rewrite.
 
+## Block 3 — the Web GUI context (measured 2026-10-29)
+
+The Web GUI paragraph can independently trigger `400 / code 11128`, even after the identity
+and path-reference rewrites. This was also reported in
+[dsh-connect-workbuddy#164](https://github.com/dingminhua/dsh-connect-workbuddy/issues/164).
+
+The plugin rewrites `You are interacting with the user through the DeepSeek Harness Web GUI`
+to `The user communicates with you through the DeepSeek Harness Web GUI` in every section.
+The remaining text, including the runtime URL reference and GUI instructions, stays intact.
+
+Replaying a failing DSH system prompt with one harmless user message still produced an upstream
+400 after the v0.1.1 rewrites; adding this rewrite produced a normal `OK` reply. An OpenAI-compatible
+proxy may wrap that upstream error in an HTTP 200 SSE `data: {"error": ...}` event: inspect the
+complete stream rather than treating the outer HTTP status alone as success.
+
 ### History is a blind spot
 
-The upstream scans **every** message, so phrase A/B (and the identity sentence) sitting in
+The upstream scans **every** message, so phrase A/B, the identity sentence, or the Web GUI paragraph sitting in
 **conversation history** triggers the same block. A plugin cannot fix that: `agent/request`
 documents that it *cannot mutate messages*, and the `llm/stream` options object arrives
 deep-frozen (mutation throws). If a session has ever quoted these, **start a new session**.
@@ -160,7 +175,7 @@ providers listed in `config.providers`:
 1. rewrites the identity sentence in every section — strip leading whitespace, then replace
    `You are an AI agent powered by` with `You are an AI agent, powered by` (idempotent, do nothing
    when the text does not start with that phrase);
-2. scans every section and rewrites phrase A to its equivalent.
+2. scans every section and rewrites phrase A and the Web GUI opening to equivalent wording.
 
 > Do **not** go back to prefixing whitespace. `^\s*` makes it a no-op.
 
