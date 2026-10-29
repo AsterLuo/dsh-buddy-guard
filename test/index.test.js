@@ -8,6 +8,38 @@ const REWRITTEN = 'You are an AI agent, powered by DeepSeek Harness.'
 const PH_A = 'Tokens prefixed with @ are paths the user explicitly referenced'
 const PH_A_NEW = 'Path tokens starting with the at-sign point at locations the user referenced'
 const PH_B = 'Relative paths resolve from the workspace root'
+const WEB_GUI = 'You are interacting with the user through the DeepSeek Harness Web GUI whose URL the runtime context names. When the user refers to the GUI, they mean this GUI.'
+const WEB_GUI_NEW = 'The user communicates with you through the DeepSeek Harness Web GUI whose URL the runtime context names. When the user refers to the GUI, they mean this GUI.'
+
+test('Web GUI fingerprint is rewritten in a later section without changing its instructions', async () => {
+  const a = asm('buddy')
+  a.sections.push({ name: 'web-gui', order: 100, text: WEB_GUI })
+  const snapshot = structuredClone(a)
+  const out = await assemble(mount(), a, 'buddy')
+  assert.equal(out.sections[0].text, REWRITTEN)
+  assert.equal(out.sections[2].text, WEB_GUI_NEW)
+  assert.deepEqual(a, snapshot, 'input assembly must not be mutated')
+})
+
+test('Web GUI rewrite is idempotent and respects a custom provider scope', async () => {
+  const handler = mount({ enabled: true, providers: ['cb'] })
+  const once = await assemble(handler, asm('cb', WEB_GUI), 'cb')
+  assert.equal(once.sections[0].text, WEB_GUI_NEW)
+  const twice = await assemble(handler, once, 'cb')
+  assert.deepEqual(twice, once)
+  const other = asm('buddy', WEB_GUI)
+  assert.equal(await assemble(handler, other, 'buddy'), other)
+})
+
+test('all known fingerprints are rewritten together across sections', async () => {
+  const a = asm('buddy')
+  a.sections.push({ name: 'paths', text: `${PH_A}. ${PH_B};` })
+  a.sections.push({ name: 'web-gui', text: WEB_GUI })
+  const out = await assemble(mount(), a, 'buddy')
+  assert.equal(out.sections[0].text, REWRITTEN)
+  assert.equal(out.sections[2].text, `${PH_A_NEW}. ${PH_B};`)
+  assert.equal(out.sections[3].text, WEB_GUI_NEW)
+})
 
 /** 捕获插件注册的 system-prompt/assemble 监听器。 */
 function mount(config = { enabled: true, providers: ['buddy'] }) {

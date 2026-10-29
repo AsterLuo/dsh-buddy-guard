@@ -31,7 +31,7 @@ HTTP 400 `INVALID_REQUEST`。同一个账号、同一个端点，只要请求不
 | --- | --- | --- |
 | 1 | 2026-10-21，2026-10-29 收紧 | system 文本以身份句开头 |
 | 2 | 2026-10-27 | system 文本里短语 A 与短语 B **同时**出现 |
-| 3 | 见下 | 身份句判据**忽略前导空白** |
+| 3 | 2026-10-29 | system 文本包含固定的 Web GUI 上下文段落 |
 
 ## 第一道拦截：身份句（2026-10-21 实测，2026-10-29 收紧）
 
@@ -116,9 +116,22 @@ You are an AI agent powered by DeepSeek Harness.
 > **2026-10-29 复测：这条规则仍在。** 对照实验：修好身份句、但把 A 还原成原文 → 仍 `400`。
 > 所以 A 句改写**不能删**。
 
+## 第三道拦截：Web GUI 上下文（2026-10-29 实测）
+
+即使身份句和路径引用指纹已改写，Web GUI 段落仍可能独立触发 `400 / code 11128`。
+社区已有同类报告：[dsh-connect-workbuddy#164](https://github.com/dingminhua/dsh-connect-workbuddy/issues/164)。
+
+插件在所有 section 中把 `You are interacting with the user through the DeepSeek Harness Web GUI`
+改为 `The user communicates with you through the DeepSeek Harness Web GUI`。
+其余文本保持原样，包括运行时 URL 引用和 GUI 交互说明。
+
+对失败会话的 system 加一条无害 user 消息做回放：仅使用 v0.1.1 原有改写仍返回上游 400，
+加上这处改写后正常回复 `OK`。OpenAI 兼容反代可能把上游错误包在 HTTP 200 的 SSE
+`data: {"error": ...}` 事件中，因此需要读取完整流，不能只看外层 HTTP 状态。
+
 ### 历史消息是盲区
 
-上游会扫**每一条**消息，所以**对话历史**里出现过 A/B（或身份句）一样会被拦。插件对此无能为力：
+上游会扫**每一条**消息，所以**对话历史**里出现过 A/B、身份句或 Web GUI 段落一样会被拦。插件对此无能为力：
 `agent/request` 的契约明确写着它 *cannot mutate messages*，而 `llm/stream` 的 options 是
 deep-frozen（改就抛错）。如果某个会话引用过这些句子，请**新开会话**。
 
@@ -147,7 +160,7 @@ node docs/tools/buddy-guard-verify.mjs
 
 1. 改写所有 section 里的身份句 —— 先剥掉前导空白，再把
    `You are an AI agent powered by` 换成 `You are an AI agent, powered by`（幂等；不以该短语开头就不动）；
-2. 扫描**每一个** section，把短语 A 改写成等价表述。
+2. 扫描**每一个** section，把短语 A 和 Web GUI 开头改写成等价表述。
 
 > **不要**再退回去用前导空格。`^\s*` 让它彻底变成空操作。
 
